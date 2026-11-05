@@ -1,0 +1,17 @@
+.git
+**/.git
+**/node_modules
+**/build
+**/data
+**/.DS_Store
+**/.env
+**/.env.*
+**/*.log
+**/coverage
+**/app.private.yaml
+**/*credentials*.json
+**/service-account*.json
+**/*.pem
+**/*.key
+**/.jwt-key
+**/state.json

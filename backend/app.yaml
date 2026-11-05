@@ -1,0 +1,20 @@
+runtime: go
+env: flex
+network:
+  name: default
+  subnetwork_name: default
+automatic_scaling:
+  min_num_instances: 1
+  max_num_instances: 2
+runtime_config:
+  operating_system: "ubuntu22"
+  runtime_version: "1.24"
+
+# Deployment template: cloud mode deliberately fails until the required private
+# values are supplied in an ignored deployment-specific copy of this file.
+env_variables:
+  HOST: "0.0.0.0"
+  STORAGE_MODE: "cloud"
+  OPENAI_IMAGE_MODEL: "gpt-image-2.5-sunburst"
+  # Required: ES_URL, GCS_BUCKET, JWT_SIGNING_KEY.
+  # Optional private values: ES_USERNAME, ES_PASSWORD, OPENAI_API_KEY.

@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      HOST: "0.0.0.0"
+      STORAGE_MODE: local
+      DATA_DIR: /app/data
+      FRONTEND_DIR: /app/public
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
+    volumes:
+      - socialsphere-data:/app/data
+
+volumes:
+  socialsphere-data:
