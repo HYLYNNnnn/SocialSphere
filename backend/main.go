@@ -58,8 +58,10 @@ func main() {
 	router := handler.NewRouter(handler.RouterOptions{
 		Users: handler.NewUserHandlers(service.NewUserService(users), auth), Auth: auth,
 		Posts: service.NewPostService(posts, media), Media: media,
-		Images:         service.NewOpenAIImageGenerator(cfg.OpenAIKey, cfg.ImageModel, nil, ""),
-		AllowedOrigins: cfg.AllowedOrigins, FrontendDir: cfg.FrontendDir,
+		Images:             service.NewOpenAIImageGenerator(cfg.OpenAIKey, cfg.ImageModel, nil, ""),
+		AllowUserImageKeys: cfg.AllowUserImageKeys,
+		DefaultImageModel:  cfg.ImageModel,
+		AllowedOrigins:     cfg.AllowedOrigins, FrontendDir: cfg.FrontendDir,
 	})
 	server := &http.Server{Addr: cfg.Address, Handler: router, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 30 * time.Second, WriteTimeout: 180 * time.Second, IdleTimeout: 60 * time.Second}

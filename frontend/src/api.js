@@ -163,12 +163,32 @@ export async function uploadPost(file, message) {
 
 export const deletePost = (postId) => apiRequest(`/post/${encodeURIComponent(postId)}`, { method: "DELETE" });
 
-export async function generateImage(prompt) {
+export async function getImageConfig(options = {}) {
+  const config = await apiRequest("/image-config", options);
+  if (typeof config?.server_configured !== "boolean" || typeof config?.user_keys_allowed !== "boolean"
+      || typeof config?.default_model !== "string" || !Array.isArray(config?.models) || !config.models.length
+      || config.models.some((model) => typeof model?.id !== "string" || !model.id.trim()
+        || typeof model?.label !== "string" || !model.label.trim())) {
+    throw new ApiError("Image settings are unavailable. Please try again.");
+  }
+  return config;
+}
+
+export async function generateImage(prompt, { model, keySource = "server", apiKey } = {}) {
   const description = prompt.trim();
   if (!description || Array.from(description).length > MAX_IMAGE_PROMPT_CHARACTERS) {
     throw new ApiError("Enter an image description of 1 to 2000 characters.");
   }
-  const result = await apiRequest("/generate-image", jsonOptions({ prompt: description }));
+  if (!["server", "personal"].includes(keySource)) {
+    throw new ApiError("Choose how to connect to OpenAI in Image settings.");
+  }
+  const personalKey = typeof apiKey === "string" ? apiKey.trim() : "";
+  if (keySource === "personal" && !personalKey) {
+    throw new ApiError("Enter your OpenAI API key in Image settings.");
+  }
+  const options = jsonOptions({ prompt: description, key_source: keySource, ...(model ? { model } : {}) });
+  if (keySource === "personal") options.headers["X-OpenAI-Api-Key"] = personalKey;
+  const result = await apiRequest("/generate-image", options);
   if (typeof result?.image_url !== "string" || !result.image_url.startsWith("data:image/")) {
     throw new ApiError("The server returned an invalid generated image.");
   }

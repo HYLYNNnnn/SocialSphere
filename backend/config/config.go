@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"socialai/service"
 )
 
 type Config struct {
@@ -23,6 +25,7 @@ type Config struct {
 	GCSBucket             string
 	OpenAIKey             string
 	ImageModel            string
+	AllowUserImageKeys    bool
 	AllowedOrigins        []string
 }
 
@@ -39,6 +42,14 @@ func Load() (Config, error) {
 	if err != nil || number < 1 || number > 65535 {
 		return Config{}, errors.New("PORT must be between 1 and 65535")
 	}
+	allowUserImageKeys := false
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ALLOW_USER_IMAGE_KEYS"))) {
+	case "", "false":
+	case "true":
+		allowUserImageKeys = true
+	default:
+		return Config{}, errors.New("ALLOW_USER_IMAGE_KEYS must be true or false")
+	}
 	c := Config{
 		Address:     net.JoinHostPort(value("HOST", "127.0.0.1"), port),
 		StorageMode: strings.ToLower(value("STORAGE_MODE", "local")),
@@ -52,6 +63,7 @@ func Load() (Config, error) {
 		GCSBucket:             strings.TrimSpace(os.Getenv("GCS_BUCKET")),
 		OpenAIKey:             strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		ImageModel:            value("OPENAI_IMAGE_MODEL", "gpt-image-2.5-sunburst"),
+		AllowUserImageKeys:    allowUserImageKeys,
 	}
 	if c.StorageMode != "local" && c.StorageMode != "cloud" {
 		return Config{}, errors.New("STORAGE_MODE must be local or cloud")
@@ -65,8 +77,8 @@ func Load() (Config, error) {
 			return Config{}, errors.New("cloud mode requires GCS_BUCKET and a private JWT_SIGNING_KEY")
 		}
 	}
-	if !strings.HasPrefix(c.ImageModel, "gpt-image-") {
-		return Config{}, errors.New("OPENAI_IMAGE_MODEL must be a supported GPT image model; DALL-E models are retired")
+	if !service.IsSupportedImageModel(c.ImageModel) {
+		return Config{}, errors.New("OPENAI_IMAGE_MODEL must be one of the supported GPT image models")
 	}
 	for _, origin := range strings.Split(value("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"), ",") {
 		origin = strings.TrimRight(strings.TrimSpace(origin), "/")

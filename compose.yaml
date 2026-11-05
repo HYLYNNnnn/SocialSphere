@@ -11,6 +11,7 @@ services:
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2.5-sunburst}
+      ALLOW_USER_IMAGE_KEYS: ${ALLOW_USER_IMAGE_KEYS:-false}
     volumes:
       - socialsphere-data:/app/data
 

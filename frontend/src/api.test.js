@@ -1,6 +1,6 @@
 import {
   apiRequest, getSession, clearSession, signIn, signUp, verifySession, searchPosts,
-  validatePassword, validateMediaFile, uploadPost, generateImage, generatedImageFile,
+  validatePassword, validateMediaFile, uploadPost, getImageConfig, generateImage, generatedImageFile,
   normalizeMediaURL, SESSION_EXPIRED_EVENT,
 } from "./api";
 import { SEARCH_KEY, TOKEN_KEY, MAX_UPLOAD_BYTES } from "./constants";
@@ -144,7 +144,58 @@ test("image generation calls only the authenticated backend endpoint", async () 
   global.fetch.mockResolvedValue(respond(200, { image_url: image }));
   await expect(generateImage(" A blue bird ")).resolves.toEqual({ imageUrl: image, prompt: "A blue bird" });
   expect(global.fetch.mock.calls[0][0]).toBe("/api/generate-image");
-  expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ prompt: "A blue bird" });
+  expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ prompt: "A blue bird", key_source: "server" });
+});
+
+test("image options use website authentication and support cancelling a stale load", async () => {
+  const token = signedIn(); const controller = new AbortController();
+  const config = { server_configured: false, user_keys_allowed: true, default_model: "gpt-image-2",
+    models: [{ id: "gpt-image-2", label: "GPT Image 2" }] };
+  global.fetch.mockResolvedValue(respond(200, config));
+  await expect(getImageConfig({ signal: controller.signal })).resolves.toEqual(config);
+  const [url, options] = global.fetch.mock.calls[0];
+  expect(url).toBe("/api/image-config");
+  expect(options.headers).toEqual({ Authorization: `Bearer ${token}` });
+  expect(options.signal).toBe(controller.signal);
+});
+
+test("unusable image options are rejected with a safe setup message", async () => {
+  signedIn(); global.fetch.mockResolvedValue(respond(200, { models: [] }));
+  await expect(getImageConfig()).rejects.toThrow("Image settings are unavailable");
+});
+
+test("personal generation sends the key only in its header and keeps the website JWT", async () => {
+  const token = signedIn(); const key = "sk-example-personal-key";
+  const cookieBefore = document.cookie;
+  sessionStorage.clear();
+  global.fetch.mockResolvedValue(respond(200, { image_url: "data:image/png;base64,cG5n" }));
+  await generateImage(" A bird ", { model: "gpt-image-2", keySource: "personal", apiKey: ` ${key} ` });
+  const [url, options] = global.fetch.mock.calls[0];
+  expect(url).toBe("/api/generate-image");
+  expect(options.headers).toEqual({ "Content-Type": "application/json", "X-OpenAI-Api-Key": key, Authorization: `Bearer ${token}` });
+  expect(JSON.parse(options.body)).toEqual({ prompt: "A bird", model: "gpt-image-2", key_source: "personal" });
+  expect(options.body).not.toContain(key); expect(url).not.toContain(key);
+  expect(localStorage.length).toBe(1); expect(localStorage.getItem(TOKEN_KEY)).toBe(token);
+  expect(sessionStorage.length).toBe(0); expect(document.cookie).toBe(cookieBefore);
+});
+
+test("personal generation never sends an empty key or falls back to the server key", async () => {
+  signedIn();
+  await expect(generateImage("A bird", { keySource: "personal", apiKey: "   " })).rejects.toThrow("Enter your OpenAI API key");
+  await expect(generateImage("A bird", { keySource: "personal" })).rejects.toThrow("Enter your OpenAI API key");
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test("server generation omits a personal key and an upstream key rejection preserves sign-in", async () => {
+  const token = signedIn(); const expired = jest.fn();
+  window.addEventListener(SESSION_EXPIRED_EVENT, expired);
+  global.fetch.mockResolvedValue(respond(502, { message: "OpenAI could not accept this API key." }));
+  try {
+    await expect(generateImage("A bird", { model: "gpt-image-2", keySource: "server", apiKey: "sk-unused" }))
+      .rejects.toMatchObject({ status: 502, message: "OpenAI could not accept this API key." });
+    expect(global.fetch.mock.calls[0][1].headers["X-OpenAI-Api-Key"]).toBeUndefined();
+    expect(localStorage.getItem(TOKEN_KEY)).toBe(token); expect(expired).not.toHaveBeenCalled();
+  } finally { window.removeEventListener(SESSION_EXPIRED_EVENT, expired); }
 });
 
 test("generated data converts locally to a PNG without requesting an external URL", () => {

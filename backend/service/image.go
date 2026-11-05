@@ -27,6 +27,46 @@ type ImageGenerator interface {
 	Enabled() bool
 }
 
+const DefaultImageModel = "gpt-image-2.5-sunburst"
+
+type ImageModel struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+var imageModels = [...]ImageModel{
+	{ID: "gpt-image-2", Label: "GPT Image 2"},
+	{ID: "gpt-image-2.5-sunburst", Label: "GPT Image 2.5 Sunburst"},
+	{ID: "gpt-image-2.5-flare", Label: "GPT Image 2.5 Flare"},
+	{ID: "gpt-image-2.6-sunburst", Label: "GPT Image 2.6 Sunburst"},
+	{ID: "gpt-image-2.6-flare", Label: "GPT Image 2.6 Flare"},
+}
+
+func SupportedImageModels() []ImageModel {
+	return append([]ImageModel(nil), imageModels[:]...)
+}
+
+func IsSupportedImageModel(model string) bool {
+	for _, candidate := range imageModels {
+		if candidate.ID == model {
+			return true
+		}
+	}
+	return false
+}
+
+// These options belong to one request. Never save them in a shared generator.
+type ImageGenerationOptions struct {
+	Model          string
+	UsePersonalKey bool
+	APIKey         string
+}
+
+type ConfigurableImageGenerator interface {
+	ImageGenerator
+	GenerateWithOptions(context.Context, string, string, ImageGenerationOptions) (string, error)
+}
+
 type OpenAIImageGenerator struct {
 	key      string
 	model    string
@@ -38,14 +78,34 @@ func NewOpenAIImageGenerator(key, model string, client *http.Client, endpoint st
 	if client == nil {
 		client = &http.Client{Timeout: 150 * time.Second}
 	}
+	// Do not forward a server or personal key through an upstream redirect.
+	requestClient := *client
+	requestClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	if endpoint == "" {
 		endpoint = "https://api.openai.com/v1/images/generations"
 	}
-	return &OpenAIImageGenerator{key: key, model: model, client: client, endpoint: endpoint}
+	return &OpenAIImageGenerator{key: key, model: model, client: &requestClient, endpoint: endpoint}
 }
 func (g *OpenAIImageGenerator) Enabled() bool { return strings.TrimSpace(g.key) != "" }
 
+func (g *OpenAIImageGenerator) GenerateWithOptions(ctx context.Context, username, prompt string, options ImageGenerationOptions) (string, error) {
+	requestGenerator := *g
+	if options.Model != "" {
+		requestGenerator.model = options.Model
+	}
+	if options.UsePersonalKey {
+		requestGenerator.key = options.APIKey
+		if strings.TrimSpace(requestGenerator.key) == "" {
+			return "", ValidationError("A personal OpenAI API key is required.")
+		}
+	}
+	return requestGenerator.Generate(ctx, username, prompt)
+}
+
 func (g *OpenAIImageGenerator) Generate(ctx context.Context, username, prompt string) (string, error) {
+	if !IsSupportedImageModel(g.model) {
+		return "", ValidationError("Select a supported image model.")
+	}
 	if !g.Enabled() {
 		return "", ImageError{503, "AI image generation is not configured on the server."}
 	}
@@ -76,14 +136,8 @@ func (g *OpenAIImageGenerator) Generate(ctx context.Context, username, prompt st
 		return "", ImageError{502, "The image service could not be reached."}
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusTooManyRequests {
-		return "", ImageError{429, "The image service is busy. Please try again later."}
-	}
-	if response.StatusCode == 400 {
-		return "", ImageError{422, "The image request was rejected. Try a different description."}
-	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", ImageError{502, "Image generation is temporarily unavailable. Check the server configuration."}
+		return "", imageProviderError(response)
 	}
 	const maxResponseBytes = 16 << 20
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
@@ -107,4 +161,32 @@ func (g *OpenAIImageGenerator) Generate(ctx context.Context, username, prompt st
 		return "", ImageError{502, "The generated image is invalid or too large to upload."}
 	}
 	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(imageData), nil
+}
+
+func imageProviderError(response *http.Response) ImageError {
+	// Interpret only known codes; provider text may contain private request details.
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&body)
+	if response.StatusCode == http.StatusUnauthorized {
+		return ImageError{502, "The image provider rejected the API key. Check the selected key and try again."}
+	}
+	if response.StatusCode == http.StatusForbidden {
+		return ImageError{502, "The selected API key does not have access to this image model. Check the key and model."}
+	}
+	if response.StatusCode == http.StatusPaymentRequired || body.Error.Code == "insufficient_quota" ||
+		body.Error.Code == "billing_hard_limit_reached" || body.Error.Type == "insufficient_quota" {
+		return ImageError{402, "The image account has insufficient quota or a billing limit. Check the selected account's billing settings."}
+	}
+	if response.StatusCode == http.StatusTooManyRequests {
+		return ImageError{429, "The image provider rate limit was reached. Please wait and try again."}
+	}
+	if response.StatusCode == http.StatusBadRequest {
+		return ImageError{422, "The image request was rejected. Check model access or try a different description."}
+	}
+	return ImageError{502, "Image generation is temporarily unavailable. Check the selected key and model."}
 }

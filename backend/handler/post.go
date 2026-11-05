@@ -160,11 +160,40 @@ func postError(w http.ResponseWriter, err error, fallback string) {
 type ImageHandler struct {
 	generator service.ImageGenerator
 	limiter   *rate.Limiter
+	options   ImageHandlerOptions
 }
 
-func NewImageHandler(generator service.ImageGenerator) *ImageHandler {
-	return &ImageHandler{generator: generator, limiter: rate.NewLimiter(rate.Every(30*time.Second), 2)}
+type ImageHandlerOptions struct {
+	AllowUserKeys bool
+	DefaultModel  string
 }
+
+func NewImageHandler(generator service.ImageGenerator, options ...ImageHandlerOptions) *ImageHandler {
+	settings := ImageHandlerOptions{DefaultModel: service.DefaultImageModel}
+	if len(options) > 0 {
+		settings = options[0]
+		if settings.DefaultModel == "" {
+			settings.DefaultModel = service.DefaultImageModel
+		}
+	}
+	return &ImageHandler{generator: generator, options: settings,
+		limiter: rate.NewLimiter(rate.Every(30*time.Second), 2)}
+}
+
+func (h *ImageHandler) Config(w http.ResponseWriter, r *http.Request) {
+	if _, ok := AuthenticatedUsername(r); !ok {
+		writeAuthError(w, http.StatusUnauthorized, "Please sign in to continue.")
+		return
+	}
+	writeAuthJSON(w, http.StatusOK, struct {
+		ServerConfigured bool                 `json:"server_configured"`
+		UserKeysAllowed  bool                 `json:"user_keys_allowed"`
+		DefaultModel     string               `json:"default_model"`
+		Models           []service.ImageModel `json:"models"`
+	}{h.generator != nil && h.generator.Enabled(), h.options.AllowUserKeys,
+		h.options.DefaultModel, service.SupportedImageModels()})
+}
+
 func (h *ImageHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	username, ok := AuthenticatedUsername(r)
 	if !ok {
@@ -172,7 +201,9 @@ func (h *ImageHandler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Prompt string `json:"prompt"`
+		Prompt    string `json:"prompt"`
+		Model     string `json:"model"`
+		KeySource string `json:"key_source"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 	decoder.DisallowUnknownFields()
@@ -194,7 +225,50 @@ func (h *ImageHandler) Generate(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, 400, "Describe an image using 1–2000 characters.")
 		return
 	}
-	if h.generator == nil || !h.generator.Enabled() {
+	model := strings.TrimSpace(input.Model)
+	if model == "" {
+		model = h.options.DefaultModel
+	}
+	if !service.IsSupportedImageModel(model) {
+		writeAuthError(w, http.StatusBadRequest, "Select a supported image model.")
+		return
+	}
+	if input.KeySource == "" {
+		input.KeySource = "server"
+	}
+	_, hasPersonalKeyHeader := r.Header[http.CanonicalHeaderKey("X-OpenAI-Api-Key")]
+	requestOptions := service.ImageGenerationOptions{Model: model}
+	switch input.KeySource {
+	case "server":
+		if hasPersonalKeyHeader {
+			writeAuthError(w, http.StatusBadRequest, "Do not send a personal API key when using the server key.")
+			return
+		}
+		if h.generator == nil || !h.generator.Enabled() {
+			writeAuthError(w, http.StatusServiceUnavailable, "AI image generation is not configured on the server.")
+			return
+		}
+	case "personal":
+		if !h.options.AllowUserKeys {
+			writeAuthError(w, http.StatusForbidden, "Personal OpenAI API keys are not enabled on this server.")
+			return
+		}
+		keys := r.Header.Values("X-OpenAI-Api-Key")
+		if len(keys) != 1 || strings.TrimSpace(keys[0]) == "" {
+			writeAuthError(w, http.StatusBadRequest, "Enter your personal OpenAI API key.")
+			return
+		}
+		key := strings.TrimSpace(keys[0])
+		if len(key) > 1024 || strings.IndexFunc(key, func(c rune) bool { return c < 33 || c > 126 }) >= 0 {
+			writeAuthError(w, http.StatusBadRequest, "Enter a valid personal OpenAI API key.")
+			return
+		}
+		requestOptions.UsePersonalKey, requestOptions.APIKey = true, key
+	default:
+		writeAuthError(w, http.StatusBadRequest, "Choose the server key or your personal API key.")
+		return
+	}
+	if h.generator == nil {
 		writeAuthError(w, 503, "AI image generation is not configured on the server.")
 		return
 	}
@@ -203,7 +277,15 @@ func (h *ImageHandler) Generate(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, 429, "Please wait before generating another image.")
 		return
 	}
-	url, err := h.generator.Generate(r.Context(), username, input.Prompt)
+	var url string
+	var err error
+	if generator, ok := h.generator.(service.ConfigurableImageGenerator); ok {
+		url, err = generator.GenerateWithOptions(r.Context(), username, input.Prompt, requestOptions)
+	} else if requestOptions.UsePersonalKey || model != h.options.DefaultModel {
+		err = service.ImageError{Status: 503, Message: "The image service does not support the selected key or model."}
+	} else {
+		url, err = h.generator.Generate(r.Context(), username, input.Prompt)
+	}
 	if err != nil {
 		var validation service.ValidationError
 		var imageError service.ImageError

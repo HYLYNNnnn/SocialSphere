@@ -13,18 +13,23 @@ import (
 )
 
 type RouterOptions struct {
-	Users          *UserHandlers
-	Auth           *Authenticator
-	Posts          *service.PostService
-	Media          service.MediaStore
-	Images         service.ImageGenerator
-	AllowedOrigins []string
-	FrontendDir    string
+	Users              *UserHandlers
+	Auth               *Authenticator
+	Posts              *service.PostService
+	Media              service.MediaStore
+	Images             service.ImageGenerator
+	AllowUserImageKeys bool
+	DefaultImageModel  string
+	AllowedOrigins     []string
+	FrontendDir        string
 }
 
 func NewRouter(options RouterOptions) http.Handler {
 	posts := NewPostHandlers(options.Posts, options.Media)
-	images := NewImageHandler(options.Images)
+	images := NewImageHandler(options.Images, ImageHandlerOptions{
+		AllowUserKeys: options.AllowUserImageKeys,
+		DefaultModel:  options.DefaultImageModel,
+	})
 	register := func(router *mux.Router) {
 		router.HandleFunc("/signup", options.Users.Signup).Methods("POST")
 		router.HandleFunc("/signin", options.Users.Signin).Methods("POST")
@@ -32,6 +37,7 @@ func NewRouter(options RouterOptions) http.Handler {
 		router.Handle("/upload", options.Auth.Middleware(http.HandlerFunc(posts.Upload))).Methods("POST")
 		router.Handle("/search", options.Auth.Middleware(http.HandlerFunc(posts.Search))).Methods("GET")
 		router.Handle("/post/{id}", options.Auth.Middleware(http.HandlerFunc(posts.Delete))).Methods("DELETE")
+		router.Handle("/image-config", options.Auth.Middleware(http.HandlerFunc(images.Config))).Methods("GET")
 		router.Handle("/generate-image", options.Auth.Middleware(http.HandlerFunc(images.Generate))).Methods("POST")
 		router.HandleFunc("/media/{id}", posts.Media).Methods("GET", "HEAD")
 		router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { writeAuthJSON(w, 200, map[string]string{"status": "ok"}) }).Methods("GET")
@@ -45,7 +51,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	register(root) // Keep the original root endpoint paths compatible.
 	root.PathPrefix("/").Handler(spaHandler(options.FrontendDir)).Methods("GET", "HEAD")
 	cors := handlers.CORS(handlers.AllowedOrigins(options.AllowedOrigins),
-		handlers.AllowedHeaders([]string{"Authorization", "Content-Type"}),
+		handlers.AllowedHeaders([]string{"Authorization", "Content-Type", "X-OpenAI-Api-Key"}),
 		handlers.AllowedMethods([]string{"GET", "POST", "DELETE", "HEAD", "OPTIONS"}))(root)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
