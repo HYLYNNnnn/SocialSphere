@@ -8,18 +8,7 @@ Originally developed in **August 2025** with **React, Go, JWT, Elasticsearch, Go
 
 ## Demo
 
-[![Original SocialSphere project demo: image and video collection](docs/images/original-demo-preview.png)](docs/media/socialsphere-demo.mp4)
-
-**[Watch the complete 1-minute 47-second demo](docs/media/socialsphere-demo.mp4)** — sign-in, image browsing, AI image generation, upload, image preview, and video playback.
-
-The original recording uses the name **Social AI**. The same project is presented here as **SocialSphere**, and the current interface, browser title, and app metadata use that name. The historical recording shows the original AI workflow; the maintained version sends generation requests through the Go backend.
-
-<details>
-<summary>Current SocialSphere interface</summary>
-
-<img src="docs/images/current-create.jpg" alt="Current SocialSphere image creation page" width="320" />
-
-</details>
+[▶ Watch the SocialSphere demo](https://drive.google.com/file/d/1H6R5kVk7SKsjU4kpb23TPljHFBYTDQaB/view?usp=sharing)
 
 ## Features
 

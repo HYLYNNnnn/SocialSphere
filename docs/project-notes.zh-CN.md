@@ -69,4 +69,4 @@ SocialSphere 是原 Social AI 项目的展示名称。历史 demo 中出现的 S
 
 转入历史片段前说：“Here is the image-generation workflow from the original 2025 demo.” 片段结束后再回到当前 SocialSphere 页面。历史片段展示当时流程；它不构成当前模型、当前 key 或当前云资源仍可用的证明。
 
-如果需要保留原 demo 独立展示，直接链接 [历史演示视频](media/socialsphere-demo.mp4)，不要用新录屏标题覆盖它。当前没有 key 时，如需验证配置错误处理，可单独演示一次生成请求收到的配置提示；不要把这个提示剪成一次成功生成。
+新录屏已通过 [Google Drive 分享链接](https://drive.google.com/file/d/1H6R5kVk7SKsjU4kpb23TPljHFBYTDQaB/view?usp=sharing)放入 README 的 Demo 区域。原始录屏文件保留作参考。当前没有 key 时，如需验证配置错误处理，可单独演示一次生成请求收到的配置提示；不要把这个提示剪成一次成功生成。
