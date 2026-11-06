@@ -6,6 +6,8 @@ Originally developed in **August 2025** with **React, Go, JWT, Elasticsearch, Go
 
 [Demo](#demo) · [Features](#features) · [Architecture](#architecture) · [Run locally](#local-development) · [API](#api)
 
+![SocialSphere image creation interface](docs/images/ai-create.png)
+
 ## Demo
 
 [▶ Watch the SocialSphere demo](https://drive.google.com/file/d/1H6R5kVk7SKsjU4kpb23TPljHFBYTDQaB/view?usp=sharing)
@@ -21,6 +23,13 @@ Originally developed in **August 2025** with **React, Go, JWT, Elasticsearch, Go
 | Post ownership | Delete your own posts and their stored media; other users cannot delete them |
 
 Uploads support JPEG, PNG, GIF, MP4, and WebM files up to **10 MiB**. Search returns up to 100 posts, ordered newest first. AI generation previews an image before publication; generating alone does not create a post.
+
+<details>
+<summary>View post creation and the media gallery</summary>
+
+![SocialSphere post creation form and gallery](docs/images/create-post.png)
+
+</details>
 
 ## Engineering highlights
 
